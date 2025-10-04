@@ -1,103 +1,74 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useRouter } from "next/navigation";
+import { motion } from "framer-motion";
+import { useState } from "react";
+import { FaDatabase } from "react-icons/fa";
+
+export default function LandingPage() {
+  const router = useRouter();
+  const [files, setFiles] = useState<{ a?: File; b?: File }>({});
+
+  const handleFileChange = (
+    e: React.ChangeEvent<HTMLInputElement>,
+    key: "a" | "b"
+  ) => {
+    if (e.target.files && e.target.files[0]) {
+      setFiles({ ...files, [key]: e.target.files[0] });
+    }
+  };
+
+  const handleContinue = () => {
+    if (files.a && files.b) {
+      router.push("/mapping");
+    } else {
+      alert("Upload both datasets first!");
+    }
+  };
+
   return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+    <div className="h-screen flex flex-col items-center justify-center bg-gradient-to-r from-gray-900 via-indigo-900 to-black text-gray-200 px-6">
+      <motion.h1
+        className="text-5xl font-extrabold mb-8 text-white drop-shadow-lg"
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+      >
+        Data Integration
+      </motion.h1>
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
+      <p className="text-gray-400 mb-10 text-center max-w-2xl">
+        Upload two datasets
+      </p>
+
+      <div className="flex space-x-8">
+        <label className="flex flex-col items-center justify-center border-2 border-dashed border-cyan-500/50 rounded-lg p-6 w-56 h-40 cursor-pointer hover:bg-cyan-500/10 transition hover:shadow-[0_0_15px_#22d3ee]">
+          <FaDatabase className="text-3xl mb-2 text-cyan-400" />
+          <span className="text-sm">Upload Dataset A</span>
+          <input
+            type="file"
+            hidden
+            onChange={(e) => handleFileChange(e, "a")}
           />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
+        </label>
+
+        <label className="flex flex-col items-center justify-center border-2 border-dashed border-fuchsia-500/50 rounded-lg p-6 w-56 h-40 cursor-pointer hover:bg-fuchsia-500/10 transition hover:shadow-[0_0_15px_#d946ef]">
+          <FaDatabase className="text-3xl mb-2 text-fuchsia-400" />
+          <span className="text-sm">Upload Dataset B</span>
+          <input
+            type="file"
+            hidden
+            onChange={(e) => handleFileChange(e, "b")}
           />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+        </label>
+      </div>
+
+      <motion.button
+        className="mt-10 px-8 py-3 bg-gradient-to-r from-cyan-500 to-fuchsia-500 rounded-lg font-bold text-white shadow-lg hover:shadow-[0_0_20px_#22d3ee] transition"
+        onClick={handleContinue}
+        whileHover={{ scale: 1.05 }}
+      >
+        Continue →
+      </motion.button>
     </div>
   );
 }
