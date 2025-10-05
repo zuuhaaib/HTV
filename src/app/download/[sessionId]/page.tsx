@@ -70,9 +70,14 @@ export default function DownloadPage() {
               <h2 className="text-2xl font-bold">Merge Complete</h2>
               <p className="text-sm text-black/60 mt-1">Your merged files are ready for download. You can download individual files or grab the bundled ZIP.</p>
             </div>
-            <div className="ml-auto">
-              <a href={`${API_BASE}/api/download/${encodeURIComponent(sessionId)}/merged_output.zip`} className="inline-flex items-center gap-2 bg-[#137fec] text-white px-4 py-2 rounded-lg hover:bg-[#0f6dc9]">
-                <FiDownload /> Download All
+            <div className="ml-auto flex flex-col items-end gap-2">
+              <a href={`${API_BASE}/api/download/${encodeURIComponent(sessionId)}/merged_output.zip`} className="inline-flex items-center justify-center w-56 rounded-lg h-12 px-6 text-base font-bold text-white bg-[#137fec] hover:bg-[#0f6dc9] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#137fec]/50">
+                <FiDownload />
+                <span className="ml-2">Download All</span>
+              </a>
+              <a href={`${API_BASE}/api/mapping_pdf/${encodeURIComponent(sessionId)}`} className="inline-flex items-center justify-center w-56 rounded-lg h-12 px-6 text-base font-bold text-white bg-[#10b981] hover:bg-[#0ea46f] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#10b981]/50">
+                <FiFileText />
+                <span className="ml-2">Download PDF Doc</span>
               </a>
             </div>
           </div>

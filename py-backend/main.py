@@ -13,6 +13,15 @@ import zipfile
 from typing import List, Optional
 from pathlib import Path
 import uuid
+import io
+
+try:
+    # reportlab is optional; if missing, the endpoint will return JSON error asking to install it
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas
+    REPORTLAB_AVAILABLE = True
+except Exception:
+    REPORTLAB_AVAILABLE = False
 
 # Load environment variables from .env file
 load_dotenv()
@@ -553,6 +562,94 @@ async def get_job_status(job_id: str):
         "result": job.get("result"),
         "error": job.get("error")
     }
+
+
+@app.get("/api/mapping_pdf/{session_id}")
+async def get_mapping_pdf(session_id: str):
+    """Generate a PDF from mapping_documentation.json and return it for download."""
+    output_dir = OUTPUT_DIR / session_id
+    mapping_doc_path = output_dir / "mapping_documentation.json"
+    if not mapping_doc_path.exists():
+        raise HTTPException(status_code=404, detail="Mapping documentation not found")
+
+    if not REPORTLAB_AVAILABLE:
+        return JSONResponse({"error": "reportlab is not installed on the server. Install it with 'pip install reportlab' to enable PDF generation."}, status_code=500)
+
+    # Load mapping JSON
+    with open(mapping_doc_path, 'r', encoding='utf-8') as f:
+        mapping = json.load(f)
+
+    # Create PDF in memory
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=letter)
+    width, height = letter
+    margin = 40
+    y = height - margin
+
+    # Title
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(margin, y, f"Mapping Documentation: {session_id}")
+    y -= 24
+
+    # Summary if present
+    summary = mapping.get('summary')
+    if summary:
+        c.setFont("Helvetica", 10)
+        text = c.beginText(margin, y)
+        text.textLines(f"Summary: {summary}")
+        c.drawText(text)
+        y -= 18 + (12 * (str(summary).count('\n') + 1))
+
+    # Table mappings
+    table_mappings = mapping.get('table_mappings', [])
+    c.setFont("Helvetica-Bold", 12)
+    for tm in table_mappings:
+        if y < margin + 80:
+            c.showPage()
+            y = height - margin
+            c.setFont("Helvetica-Bold", 12)
+        src = tm.get('source_table')
+        tgt = tm.get('target_table')
+        c.drawString(margin, y, f"{src} → {tgt}")
+        y -= 16
+        c.setFont("Helvetica", 9)
+        # headers
+        c.drawString(margin + 8, y, "Source Field")
+        c.drawString(margin + 200, y, "Target Field")
+        c.drawString(margin + 360, y, "Confidence")
+        y -= 12
+        for fm in tm.get('field_mappings', []):
+            if y < margin + 40:
+                c.showPage()
+                y = height - margin
+            sf = str(fm.get('source_field', ''))
+            tf = str(fm.get('target_field', ''))
+            conf = fm.get('confidence', '')
+            reasoning = fm.get('reasoning', '')
+            c.drawString(margin + 8, y, sf[:28])
+            c.drawString(margin + 200, y, tf[:28])
+            c.drawString(margin + 360, y, f"{conf}")
+            y -= 12
+            if reasoning:
+                # reasoning may be long; wrap it
+                rt = c.beginText(margin + 12, y)
+                rt.setFont("Helvetica-Oblique", 8)
+                for line in str(reasoning).splitlines():
+                    rt.textLine(line[:90])
+                    y -= 10
+                c.drawText(rt)
+                y -= 4
+        y -= 10
+
+    c.save()
+    buf.seek(0)
+
+    # Write to a temp file and return as FileResponse (FileResponse needs a path)
+    tmp_path = output_dir / "mapping_documentation.pdf"
+    with open(tmp_path, 'wb') as out_f:
+        out_f.write(buf.read())
+
+    return FileResponse(tmp_path, filename="mapping_documentation.pdf", media_type="application/pdf")
 
 
 if __name__ == "__main__":
