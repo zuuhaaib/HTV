@@ -42,4 +42,6 @@ next-env.d.ts
 
 #python stuff
 /py-backend/.venv/
+/py-backend/outputs/
+/py-backend/uploads/
 __pycache__/

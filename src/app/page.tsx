@@ -1,7 +1,7 @@
 "use client";
 import React, { useCallback, useMemo, useState } from "react";
-import "@fontsource/inter";
 import { FiHelpCircle } from "react-icons/fi";
+import { useRouter } from "next/navigation";
 
 import Header from "@/components/Header";
 import UploadDropzone from "@/components/UploadDropzone";
@@ -30,6 +30,11 @@ export default function Page() {
   const [overrides, setOverrides] = useState("");
   const [sampling, setSampling] = useState("");
   const [justContinued, setJustContinued] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [merging, setMerging] = useState(false);
+  const router = useRouter();
+
+  const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
 
   // Accept & validator
   const acceptExts = useMemo(() => [".csv", ".xlsx", ".xls", ".parquet"], []);
@@ -55,38 +60,137 @@ export default function Page() {
 
   // Single stable handler (fixes rules-of-hooks)
   const handleAdd = useCallback(
-    (which: "A" | "B", files: File[]) => {
+    async (which: "A" | "B", files: File[]) => {
       const err = validateFiles(files, { maxSizeMB: 100 });
       if (err) {
         setUploadError(err);
         return;
       }
 
-      const mapped: UploadedFile[] = files.map((f) => ({
-        name: f.name,
-        sizeBytes: f.size,
-        prettySize: prettySize(f.size),
-        icon: "description",
-      }));
+      try {
+        // Build form data
+        const fd = new FormData();
+        for (const f of files) fd.append("files", f);
 
-      if (which === "A") setBundleAFiles((p) => [...p, ...mapped]);
-      else setBundleBFiles((p) => [...p, ...mapped]);
+        if (which === "A") {
+          // Upload bundle1 - this returns a session_id
+          const res = await fetch(`${API_BASE}/api/upload-bundle1`, {
+            method: "POST",
+            body: fd,
+          });
+          if (!res.ok) {
+            const text = await res.text();
+            throw new Error(text || "Upload failed");
+          }
+          const json = await res.json();
+          setSessionId(json.session_id || null);
+          // update UI state
+          const mapped: UploadedFile[] = files.map((f) => ({
+            name: f.name,
+            sizeBytes: f.size,
+            prettySize: prettySize(f.size),
+          }));
+          setBundleAFiles((p) => [...p, ...mapped]);
+        } else {
+          // Bundle B requires sessionId
+          if (!sessionId) {
+            setUploadError("Please upload Bundle A first (a session must be created).");
+            return;
+          }
+          // append session id as form field (also accepted as query param)
+          fd.append("session_id", sessionId);
+          const res = await fetch(`${API_BASE}/api/upload-bundle2?session_id=${encodeURIComponent(
+            sessionId
+          )}`, {
+            method: "POST",
+            body: fd,
+          });
+          if (!res.ok) {
+            const text = await res.text();
+            throw new Error(text || "Upload failed");
+          }
+          const json = await res.json();
+          // update UI state
+          const mapped: UploadedFile[] = files.map((f) => ({
+            name: f.name,
+            sizeBytes: f.size,
+            prettySize: prettySize(f.size),
+          }));
+          setBundleBFiles((p) => [...p, ...mapped]);
+        }
 
-      setUploadError(null);
+        setUploadError(null);
+      } catch (e: any) {
+        setUploadError(e.message || String(e));
+      }
     },
-    [validateFiles] // prettySize is stable here; it's a local function with no closure over state
+    [validateFiles, sessionId, API_BASE]
   );
 
   const canContinue = bundleAFiles.length > 0 && bundleBFiles.length > 0 && !uploadError;
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     if (!canContinue) {
       setUploadError("Please upload at least one file in both Bundle A and Bundle B to continue.");
       return;
     }
-    setJustContinued(true);
-    setTimeout(() => setJustContinued(false), 1200);
-    // router.push("/map"); // if routing to the next step
+    if (!sessionId) {
+      setUploadError("Missing session id. Please re-upload Bundle A to create a session.");
+      return;
+    }
+
+    try {
+      setMerging(true);
+      setUploadError(null);
+
+      const res = await fetch(`${API_BASE}/api/merge/${encodeURIComponent(sessionId)}`, {
+        method: "POST",
+      });
+
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || "Failed to start merge job");
+      }
+
+      const jobJson = await res.json();
+      const jobId = jobJson.job_id;
+
+      // Poll job status
+      const poll = async (): Promise<void> => {
+        try {
+          const r = await fetch(`${API_BASE}/api/job/${encodeURIComponent(jobId)}`);
+          if (!r.ok) {
+            const t = await r.text();
+            throw new Error(t || "Job status fetch failed");
+          }
+          const j = await r.json();
+          if (j.status === "success") {
+            // save result and navigate
+            try {
+              localStorage.setItem(`merge_result_${sessionId}`, JSON.stringify(j.result));
+            } catch (e) {}
+            router.push(`/download/${sessionId}`);
+            return;
+          } else if (j.status === "failed") {
+            setUploadError(j.error || "Merge job failed");
+            setMerging(false);
+            return;
+          } else {
+            // still queued/running -> wait and poll again
+            setTimeout(poll, 1500);
+          }
+        } catch (err: any) {
+          setUploadError(err.message || String(err));
+          setMerging(false);
+        }
+      };
+
+      poll();
+
+    } catch (e: any) {
+      setUploadError(e.message || String(e));
+      setMerging(false);
+    }
   };
 
   return (
@@ -203,9 +307,9 @@ export default function Page() {
 
           {/* Desktop continue bar */}
           <div className="hidden md:flex mt-10 justify-end border-t border-black/10 pt-6">
-            <div className={justContinued ? "animate-pulse" : ""}>
-              <ContinueButton disabled={!canContinue} onClick={handleContinue}>
-                {justContinued ? "Ready to Merge ✅" : "Continue"}
+            <div className={merging ? "animate-pulse" : ""}>
+              <ContinueButton disabled={!canContinue || merging} onClick={handleContinue}>
+                {merging ? "Merging..." : "Continue"}
               </ContinueButton>
             </div>
           </div>
@@ -218,11 +322,11 @@ export default function Page() {
           <div className="text-xs text-black/60">
             {bundleAFiles.length} in A · {bundleBFiles.length} in B
           </div>
-          <div className="ml-auto w-[50%]">
-            <ContinueButton disabled={!canContinue} onClick={handleContinue}>
-              {justContinued ? "Ready ✅" : "Continue"}
-            </ContinueButton>
-          </div>
+            <div className="ml-auto w-[50%]">
+              <ContinueButton disabled={!canContinue || merging} onClick={handleContinue}>
+                {merging ? "Merging..." : "Continue"}
+              </ContinueButton>
+            </div>
         </div>
       </div>
     </div>

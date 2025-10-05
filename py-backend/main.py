@@ -1,5 +1,5 @@
 # main.py - FastAPI Backend with .env support
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic_settings import BaseSettings
@@ -63,6 +63,16 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 
 # Session storage (in production, use Redis or database)
 sessions = {}
+# Job storage for background merges
+jobs = {}
+
+# Job structure example:
+# jobs[job_id] = {
+#   "status": "queued" | "running" | "success" | "failed",
+#   "session_id": session_id,
+#   "result": {...},
+#   "error": "..."
+# }
 
 
 @app.get("/")
@@ -301,88 +311,105 @@ def apply_mappings(bundle1_tables, bundle2_tables, mappings):
 
 
 @app.post("/api/merge/{session_id}")
-async def merge_data(session_id: str):
-    """Perform the AI-powered merge"""
-    try:
-        if session_id not in sessions:
-            raise HTTPException(status_code=404, detail="Session not found")
-        
-        bundle1_paths = sessions[session_id].get("bundle1", [])
-        bundle2_paths = sessions[session_id].get("bundle2", [])
-        
-        if not bundle1_paths or not bundle2_paths:
-            raise HTTPException(status_code=400, detail="Both bundles must be uploaded")
-        
-        # Load tables
-        print("📊 Loading Bundle 1 tables:")
-        bundle1_tables = load_tables(bundle1_paths, "Bundle 1")
-        
-        print("\n📊 Loading Bundle 2 tables:")
-        bundle2_tables = load_tables(bundle2_paths, "Bundle 2")
-        
-        # Analyze schemas
-        print("\n🔍 Analyzing schemas...")
-        b1_schema, b2_schema = analyze_all_schemas(bundle1_tables, bundle2_tables)
-        
-        # Generate mappings with Gemini
-        print("\n🤖 Generating mappings...")
-        mappings = generate_mappings(b1_schema, b2_schema)
-        
-        # Apply mappings and merge
-        print("\n🔄 Applying transformations...")
-        merged_tables = apply_mappings(bundle1_tables, bundle2_tables, mappings)
-        
-        # Save results
-        output_dir = OUTPUT_DIR / session_id
-        output_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Save mapping documentation
-        mapping_doc_path = output_dir / "mapping_documentation.json"
-        with open(mapping_doc_path, "w") as f:
-            json.dump(mappings, f, indent=2)
-        
-        # Save merged tables
-        output_files = []
-        for table_name, df in merged_tables.items():
-            output_path = output_dir / f"merged_{table_name}.csv"
-            df.to_csv(output_path, index=False)
-            output_files.append(output_path.name)
-        
-        # Create zip file
-        zip_path = output_dir / "merged_output.zip"
-        with zipfile.ZipFile(zip_path, 'w') as zipf:
-            zipf.write(mapping_doc_path, "mapping_documentation.json")
+async def merge_data(session_id: str, background_tasks: BackgroundTasks):
+    """Start the AI-powered merge as a background job and return a job id immediately."""
+    if session_id not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    bundle1_paths = sessions[session_id].get("bundle1", [])
+    bundle2_paths = sessions[session_id].get("bundle2", [])
+
+    if not bundle1_paths or not bundle2_paths:
+        raise HTTPException(status_code=400, detail="Both bundles must be uploaded")
+
+    # Create job
+    job_id = str(uuid.uuid4())
+    jobs[job_id] = {"status": "queued", "session_id": session_id, "result": None, "error": None}
+
+    def run_merge(job_id: str, session_id: str):
+        try:
+            jobs[job_id]["status"] = "running"
+
+            # Load tables
+            print("📊 Loading Bundle 1 tables:")
+            bundle1_tables = load_tables(bundle1_paths, "Bundle 1")
+
+            print("\n📊 Loading Bundle 2 tables:")
+            bundle2_tables = load_tables(bundle2_paths, "Bundle 2")
+
+            # Analyze schemas
+            print("\n🔍 Analyzing schemas...")
+            b1_schema, b2_schema = analyze_all_schemas(bundle1_tables, bundle2_tables)
+
+            # Generate mappings with Gemini
+            print("\n🤖 Generating mappings...")
+            mappings = generate_mappings(b1_schema, b2_schema)
+
+            # Apply mappings and merge
+            print("\n🔄 Applying transformations...")
+            merged_tables = apply_mappings(bundle1_tables, bundle2_tables, mappings)
+
+            # Save results
+            output_dir = OUTPUT_DIR / session_id
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            # Save mapping documentation
+            mapping_doc_path = output_dir / "mapping_documentation.json"
+            with open(mapping_doc_path, "w") as f:
+                json.dump(mappings, f, indent=2)
+
+            # Save merged tables
+            output_files = []
             for table_name, df in merged_tables.items():
-                csv_path = output_dir / f"merged_{table_name}.csv"
-                zipf.write(csv_path, f"merged_{table_name}.csv")
-        
-        # Generate summary statistics
-        summary = {
-            "total_tables": len(merged_tables),
-            "table_details": {}
-        }
-        
-        for table_name, df in merged_tables.items():
-            original_size = len(bundle2_tables.get(table_name, pd.DataFrame()))
-            added = len(df) - original_size
-            summary["table_details"][table_name] = {
-                "total_rows": len(df),
-                "rows_from_bundle1": added,
-                "columns": len(df.columns)
+                output_path = output_dir / f"merged_{table_name}.csv"
+                df.to_csv(output_path, index=False)
+                output_files.append(output_path.name)
+
+            # Create zip file
+            zip_path = output_dir / "merged_output.zip"
+            with zipfile.ZipFile(zip_path, 'w') as zipf:
+                zipf.write(mapping_doc_path, "mapping_documentation.json")
+                for table_name, df in merged_tables.items():
+                    csv_path = output_dir / f"merged_{table_name}.csv"
+                    zipf.write(csv_path, f"merged_{table_name}.csv")
+
+            # Generate summary statistics
+            summary = {
+                "total_tables": len(merged_tables),
+                "table_details": {}
             }
-        
-        return {
-            "status": "success",
-            "session_id": session_id,
-            "mappings": mappings,
-            "summary": summary,
-            "output_files": output_files,
-            "download_url": f"/api/download/{session_id}/merged_output.zip",
-            "message": f"Successfully merged {len(merged_tables)} tables"
-        }
-    
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+
+            for table_name, df in merged_tables.items():
+                original_size = len(bundle2_tables.get(table_name, pd.DataFrame()))
+                added = len(df) - original_size
+                summary["table_details"][table_name] = {
+                    "total_rows": len(df),
+                    "rows_from_bundle1": added,
+                    "columns": len(df.columns)
+                }
+
+            result = {
+                "status": "success",
+                "session_id": session_id,
+                "mappings": mappings,
+                "summary": summary,
+                "output_files": output_files,
+                "download_url": f"/api/download/{session_id}/merged_output.zip",
+                "message": f"Successfully merged {len(merged_tables)} tables"
+            }
+
+            jobs[job_id]["status"] = "success"
+            jobs[job_id]["result"] = result
+
+        except Exception as e:
+            jobs[job_id]["status"] = "failed"
+            jobs[job_id]["error"] = str(e)
+            print(f"Job {job_id} failed: {e}")
+
+    # Schedule the background job
+    background_tasks.add_task(run_merge, job_id, session_id)
+
+    return {"status": "queued", "job_id": job_id}
 
 
 @app.get("/api/download/{session_id}/{filename}")
@@ -412,6 +439,19 @@ async def get_session_status(session_id: str):
         "bundle1_files": len(session.get("bundle1", [])),
         "bundle2_files": len(session.get("bundle2", [])),
         "ready_to_merge": len(session.get("bundle1", [])) > 0 and len(session.get("bundle2", [])) > 0
+    }
+
+
+@app.get("/api/job/{job_id}")
+async def get_job_status(job_id: str):
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    job = jobs[job_id]
+    return {
+        "job_id": job_id,
+        "status": job.get("status"),
+        "result": job.get("result"),
+        "error": job.get("error")
     }
 
 
