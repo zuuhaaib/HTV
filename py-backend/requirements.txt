@@ -5,3 +5,4 @@ google-generativeai
 pandas
 openpyxl
 python-dotenv
+pydantic-settings

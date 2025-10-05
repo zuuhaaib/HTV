@@ -1,34 +1,59 @@
+# main.py - FastAPI Backend with .env support
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from pydantic_settings import BaseSettings
+from dotenv import load_dotenv
 import google.generativeai as genai
 import pandas as pd
 import json
 import os
 import shutil
 import zipfile
-from typing import List
+from typing import List, Optional
 from pathlib import Path
 import uuid
 
-app = FastAPI(title="EY Data Integration API")
+# Load environment variables from .env file
+load_dotenv()
+
+# Configuration using Pydantic Settings
+class Settings(BaseSettings):
+    gemini_api_key: str
+    gemini_model: str = "gemini-flash-latest"
+    host: str = "0.0.0.0"
+    port: int = 8000
+    debug: bool = False
+    cors_origins: str = "http://localhost:3000,http://localhost:5173"
+    
+    class Config:
+        env_file = ".env"
+        case_sensitive = False
+
+# Load settings
+settings = Settings()
+
+# Initialize FastAPI
+app = FastAPI(
+    title="EY Data Integration API",
+    description="AI-powered data integration using Gemini API",
+    version="1.0.0",
+    debug=settings.debug
+)
 
 # Enable CORS
+origins = settings.cors_origins.split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],  # React/Vite
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # Configure Gemini
-GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
-if not GEMINI_API_KEY:
-    raise ValueError("GEMINI_API_KEY environment variable not set")
-
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-2.0-flash')
+genai.configure(api_key=settings.gemini_api_key)
+model = genai.GenerativeModel(settings.gemini_model)
 
 # Storage directories
 UPLOAD_DIR = Path("uploads")
@@ -43,7 +68,12 @@ sessions = {}
 @app.get("/")
 async def root():
     """Health check endpoint"""
-    return {"status": "healthy", "service": "EY Data Integration API"}
+    return {
+        "status": "healthy",
+        "service": "EY Data Integration API",
+        "version": "1.0.0",
+        "model": settings.gemini_model
+    }
 
 
 @app.post("/api/upload-bundle1")
@@ -387,4 +417,9 @@ async def get_session_status(session_id: str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(
+        "main:app",  # Changed from app to "main:app" (import string)
+        host=settings.host,
+        port=settings.port,
+        reload=settings.debug
+    )
