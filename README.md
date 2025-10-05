@@ -20,17 +20,54 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
-## Learn More
+## About DataMerge Pro
 
-To learn more about Next.js, take a look at the following resources:
+DataMerge Pro is a lightweight prototype for automating dataset harmonization. Upload two data bundles (CSV/Excel) plus optional schema documents; the backend uses AI-assisted mapping to suggest table/field mappings, merges the datasets, and produces downloadable merged outputs and a PDF mapping document for audit and review.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+This repo contains the Next.js frontend and the companion FastAPI backend (in `py-backend/`) used to run merges and generate PDF documentation.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Run locally (frontend + backend)
 
-## Deploy on Vercel
+Prerequisites:
+- Node.js (v16+ recommended)
+- Python 3.9+ (for the FastAPI backend)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1) Install frontend deps and run dev server
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npm install
+npm run dev
+```
+
+2) Backend (basic local start)
+
+If this project includes the backend folder `py-backend/` (FastAPI):
+
+```bash
+# create and activate a virtualenv
+python -m venv .venv
+source .venv/bin/activate
+cd py-backend
+pip install -r requirements.txt
+python main.py
+```
+
+Notes:
+- The backend may require API keys for any AI services (set as environment variables on your system or in a .env file) something like this:
+
+```dotenv
+# Gemini API Configuration
+GEMINI_API_KEY=your_gemini_api_key
+
+# Optional: Model Configuration
+GEMINI_MODEL=gemini-flash-latest
+
+# Optional: Server Configuration
+HOST=0.0.0.0
+PORT=8000
+DEBUG=True
+
+# Optional: CORS Origins (comma-separated)
+CORS_ORIGINS=http://localhost:3000,http://localhost:5173
+
+```
