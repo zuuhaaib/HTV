@@ -1,0 +1,390 @@
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
+import google.generativeai as genai
+import pandas as pd
+import json
+import os
+import shutil
+import zipfile
+from typing import List
+from pathlib import Path
+import uuid
+
+app = FastAPI(title="EY Data Integration API")
+
+# Enable CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://localhost:5173"],  # React/Vite
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Configure Gemini
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+if not GEMINI_API_KEY:
+    raise ValueError("GEMINI_API_KEY environment variable not set")
+
+genai.configure(api_key=GEMINI_API_KEY)
+model = genai.GenerativeModel('gemini-2.0-flash')
+
+# Storage directories
+UPLOAD_DIR = Path("uploads")
+OUTPUT_DIR = Path("outputs")
+UPLOAD_DIR.mkdir(exist_ok=True)
+OUTPUT_DIR.mkdir(exist_ok=True)
+
+# Session storage (in production, use Redis or database)
+sessions = {}
+
+
+@app.get("/")
+async def root():
+    """Health check endpoint"""
+    return {"status": "healthy", "service": "EY Data Integration API"}
+
+
+@app.post("/api/upload-bundle1")
+async def upload_bundle1(files: List[UploadFile] = File(...)):
+    """Upload multiple files for Bundle 1"""
+    session_id = str(uuid.uuid4())
+    session_dir = UPLOAD_DIR / session_id / "bundle1"
+    session_dir.mkdir(parents=True, exist_ok=True)
+    
+    uploaded_files = []
+    for file in files:
+        file_path = session_dir / file.filename
+        with open(file_path, "wb") as buffer:
+            content = await file.read()
+            buffer.write(content)
+        uploaded_files.append(str(file_path))
+    
+    # Initialize session
+    if session_id not in sessions:
+        sessions[session_id] = {"bundle1": [], "bundle2": []}
+    sessions[session_id]["bundle1"] = uploaded_files
+    
+    return {
+        "status": "success",
+        "session_id": session_id,
+        "message": f"Uploaded {len(files)} Bundle 1 files",
+        "files": [f.filename for f in files]
+    }
+
+
+@app.post("/api/upload-bundle2")
+async def upload_bundle2(session_id: str, files: List[UploadFile] = File(...)):
+    """Upload multiple files for Bundle 2"""
+    if session_id not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    session_dir = UPLOAD_DIR / session_id / "bundle2"
+    session_dir.mkdir(parents=True, exist_ok=True)
+    
+    uploaded_files = []
+    for file in files:
+        file_path = session_dir / file.filename
+        with open(file_path, "wb") as buffer:
+            content = await file.read()
+            buffer.write(content)
+        uploaded_files.append(str(file_path))
+    
+    sessions[session_id]["bundle2"] = uploaded_files
+    
+    return {
+        "status": "success",
+        "session_id": session_id,
+        "message": f"Uploaded {len(files)} Bundle 2 files",
+        "files": [f.filename for f in files]
+    }
+
+
+def load_tables(file_paths: List[str], bundle_name: str):
+    """Load all CSV/Excel files into dictionary of DataFrames"""
+    tables = {}
+    for file_path in file_paths:
+        try:
+            filename = Path(file_path).name
+            if filename.endswith('.csv'):
+                df = pd.read_csv(file_path)
+            elif filename.endswith(('.xls', '.xlsx')):
+                df = pd.read_excel(file_path)
+            else:
+                continue
+            
+            # Use filename (without extension) as table name
+            table_name = filename.rsplit('.', 1)[0]
+            tables[table_name] = df
+            print(f"  ✓ {table_name}: {len(df)} rows, {len(df.columns)} columns")
+        except Exception as e:
+            print(f"  ✗ Error loading {filename}: {e}")
+    
+    return tables
+
+
+def analyze_all_schemas(bundle1_tables, bundle2_tables):
+    """Get comprehensive schema for all tables"""
+    
+    def convert_timestamps_to_strings(obj):
+        """Recursively convert Timestamp objects to strings"""
+        if isinstance(obj, dict):
+            return {k: convert_timestamps_to_strings(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [convert_timestamps_to_strings(elem) for elem in obj]
+        elif isinstance(obj, pd.Timestamp):
+            return str(obj)
+        else:
+            return obj
+    
+    # Build schema summary for Bundle 1
+    b1_schema = {}
+    for table_name, df in bundle1_tables.items():
+        b1_schema[table_name] = {
+            "columns": list(df.columns),
+            "sample": convert_timestamps_to_strings(df.head(2).to_dict('records')),
+            "row_count": len(df)
+        }
+    
+    # Build schema summary for Bundle 2
+    b2_schema = {}
+    for table_name, df in bundle2_tables.items():
+        b2_schema[table_name] = {
+            "columns": list(df.columns),
+            "sample": convert_timestamps_to_strings(df.head(2).to_dict('records')),
+            "row_count": len(df)
+        }
+    
+    return b1_schema, b2_schema
+
+
+def generate_mappings(b1_schema, b2_schema):
+    """Use Gemini to create intelligent mappings"""
+    
+    prompt = f"""
+You are a data integration expert. Analyze these two data bundles and create mappings.
+
+BUNDLE 1 SCHEMA:
+{json.dumps(b1_schema, indent=2)}
+
+BUNDLE 2 SCHEMA:
+{json.dumps(b2_schema, indent=2)}
+
+TASK: Create field-level mappings from Bundle 1 to Bundle 2.
+
+RULES:
+- One Bundle 1 table can map to MULTIPLE Bundle 2 tables (1-to-many)
+- Multiple Bundle 1 tables can map to ONE Bundle 2 table (many-to-1)
+- Map based on semantic meaning, not just column names
+- For unmapped columns in Bundle 1, suggest which Bundle 2 table should receive them
+
+Return JSON in this EXACT format:
+{{
+  "table_mappings": [
+    {{
+      "source_table": "bundle1_table_name",
+      "target_table": "bundle2_table_name",
+      "field_mappings": [
+        {{
+          "source_field": "column_from_bundle1",
+          "target_field": "column_in_bundle2",
+          "confidence": 0.95,
+          "reasoning": "why this mapping makes sense"
+        }}
+      ]
+    }}
+  ],
+  "summary": "brief explanation of mapping strategy"
+}}
+"""
+    
+    print("🤖 Asking Gemini to analyze schemas and create mappings...")
+    response = model.generate_content(prompt)
+    
+    # Extract JSON from response
+    response_text = response.text
+    json_start = response_text.find('{')
+    json_end = response_text.rfind('}') + 1
+    json_string = response_text[json_start:json_end]
+    
+    mappings = json.loads(json_string)
+    return mappings
+
+
+def apply_mappings(bundle1_tables, bundle2_tables, mappings):
+    """Transform Bundle 1 data and merge into Bundle 2"""
+    
+    merged_tables = {}
+    
+    # Start with copies of Bundle 2 tables
+    for table_name, df in bundle2_tables.items():
+        merged_tables[table_name] = df.copy()
+    
+    # Process each table mapping
+    for mapping in mappings['table_mappings']:
+        source_table = mapping['source_table']
+        target_table = mapping['target_table']
+        field_mappings = mapping['field_mappings']
+        
+        if source_table not in bundle1_tables:
+            print(f"⚠️  Source table '{source_table}' not found, skipping...")
+            continue
+        
+        if target_table not in merged_tables:
+            print(f"⚠️  Target table '{target_table}' not found, creating new...")
+            merged_tables[target_table] = pd.DataFrame()
+        
+        print(f"\n🔄 Mapping: {source_table} → {target_table}")
+        
+        # Transform source data
+        source_df = bundle1_tables[source_table]
+        transformed = pd.DataFrame()
+        
+        for field_map in field_mappings:
+            source_field = field_map['source_field']
+            target_field = field_map['target_field']
+            
+            if source_field in source_df.columns:
+                transformed[target_field] = source_df[source_field]
+                print(f"  ✓ {source_field} → {target_field} ({field_map.get('confidence', 'N/A')})")
+        
+        # Add missing columns from target with null values
+        target_df = merged_tables[target_table]
+        for col in target_df.columns:
+            if col not in transformed.columns:
+                transformed[col] = None
+        
+        # Reorder to match target schema
+        if len(target_df.columns) > 0:
+            transformed = transformed[target_df.columns]
+        
+        # Merge
+        merged_tables[target_table] = pd.concat(
+            [target_df, transformed], 
+            ignore_index=True
+        )
+        
+        print(f"  📊 Added {len(transformed)} rows to {target_table}")
+    
+    return merged_tables
+
+
+@app.post("/api/merge/{session_id}")
+async def merge_data(session_id: str):
+    """Perform the AI-powered merge"""
+    try:
+        if session_id not in sessions:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        bundle1_paths = sessions[session_id].get("bundle1", [])
+        bundle2_paths = sessions[session_id].get("bundle2", [])
+        
+        if not bundle1_paths or not bundle2_paths:
+            raise HTTPException(status_code=400, detail="Both bundles must be uploaded")
+        
+        # Load tables
+        print("📊 Loading Bundle 1 tables:")
+        bundle1_tables = load_tables(bundle1_paths, "Bundle 1")
+        
+        print("\n📊 Loading Bundle 2 tables:")
+        bundle2_tables = load_tables(bundle2_paths, "Bundle 2")
+        
+        # Analyze schemas
+        print("\n🔍 Analyzing schemas...")
+        b1_schema, b2_schema = analyze_all_schemas(bundle1_tables, bundle2_tables)
+        
+        # Generate mappings with Gemini
+        print("\n🤖 Generating mappings...")
+        mappings = generate_mappings(b1_schema, b2_schema)
+        
+        # Apply mappings and merge
+        print("\n🔄 Applying transformations...")
+        merged_tables = apply_mappings(bundle1_tables, bundle2_tables, mappings)
+        
+        # Save results
+        output_dir = OUTPUT_DIR / session_id
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save mapping documentation
+        mapping_doc_path = output_dir / "mapping_documentation.json"
+        with open(mapping_doc_path, "w") as f:
+            json.dump(mappings, f, indent=2)
+        
+        # Save merged tables
+        output_files = []
+        for table_name, df in merged_tables.items():
+            output_path = output_dir / f"merged_{table_name}.csv"
+            df.to_csv(output_path, index=False)
+            output_files.append(output_path.name)
+        
+        # Create zip file
+        zip_path = output_dir / "merged_output.zip"
+        with zipfile.ZipFile(zip_path, 'w') as zipf:
+            zipf.write(mapping_doc_path, "mapping_documentation.json")
+            for table_name, df in merged_tables.items():
+                csv_path = output_dir / f"merged_{table_name}.csv"
+                zipf.write(csv_path, f"merged_{table_name}.csv")
+        
+        # Generate summary statistics
+        summary = {
+            "total_tables": len(merged_tables),
+            "table_details": {}
+        }
+        
+        for table_name, df in merged_tables.items():
+            original_size = len(bundle2_tables.get(table_name, pd.DataFrame()))
+            added = len(df) - original_size
+            summary["table_details"][table_name] = {
+                "total_rows": len(df),
+                "rows_from_bundle1": added,
+                "columns": len(df.columns)
+            }
+        
+        return {
+            "status": "success",
+            "session_id": session_id,
+            "mappings": mappings,
+            "summary": summary,
+            "output_files": output_files,
+            "download_url": f"/api/download/{session_id}/merged_output.zip",
+            "message": f"Successfully merged {len(merged_tables)} tables"
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/download/{session_id}/{filename}")
+async def download_file(session_id: str, filename: str):
+    """Download merged results"""
+    file_path = OUTPUT_DIR / session_id / filename
+    
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    return FileResponse(
+        file_path,
+        filename=filename,
+        media_type="application/octet-stream"
+    )
+
+
+@app.get("/api/session/{session_id}/status")
+async def get_session_status(session_id: str):
+    """Get current session status"""
+    if session_id not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    session = sessions[session_id]
+    return {
+        "session_id": session_id,
+        "bundle1_files": len(session.get("bundle1", [])),
+        "bundle2_files": len(session.get("bundle2", [])),
+        "ready_to_merge": len(session.get("bundle1", [])) > 0 and len(session.get("bundle2", [])) > 0
+    }
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
