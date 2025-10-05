@@ -1,6 +1,7 @@
 // components/UploadDropzone.tsx
 "use client";
 import React, { useCallback, useRef, useState } from "react";
+import { FiUpload } from "react-icons/fi";
 
 export interface UploadDropzoneProps {
   /** Label shown inside the dropzone */
@@ -81,11 +82,11 @@ export default function UploadDropzone({
       />
 
       <div className="flex flex-col items-center gap-2">
-        <span className="material-symbols-outlined text-3xl text-slate-500">upload</span>
+        <FiUpload className="text-3xl text-slate-500" />
         <p className="text-sm text-slate-600">
           {title} <span className="text-slate-400">(max {maxSizeMB} MB each)</span>
         </p>
-        <div className="mt-2 flex items-center gap-2">
+        <div className="mt-2">
           <button
             type="button"
             onClick={onBrowse}
@@ -93,9 +94,6 @@ export default function UploadDropzone({
           >
             Browse files
           </button>
-          {acceptAttr && (
-            <span className="text-xs text-slate-400">Allowed: {accept.join(", ")}</span>
-          )}
         </div>
       </div>
     </div>

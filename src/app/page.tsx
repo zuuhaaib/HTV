@@ -18,18 +18,11 @@ type UploadedFile = {
 
 export default function Page() {
   // Files
-  const [bundleAFiles, setBundleAFiles] = useState<UploadedFile[]>([
-    { name: "customer_data_q1.csv", sizeBytes: 2.4 * 1024 * 1024, prettySize: "2.4 MB", icon: "description" },
-    { name: "sales_records.parquet", sizeBytes: 15.1 * 1024 * 1024, prettySize: "15.1 MB", icon: "backup_table" },
-  ]);
+  const [bundleAFiles, setBundleAFiles] = useState<UploadedFile[]>([]);
   const [bundleBFiles, setBundleBFiles] = useState<UploadedFile[]>([]);
 
   // UI / state
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [overrides, setOverrides] = useState("");
-  const [sampling, setSampling] = useState("");
-  const [justContinued, setJustContinued] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [merging, setMerging] = useState(false);
   const router = useRouter();
@@ -291,19 +284,6 @@ export default function Page() {
               </button>
             </div>
           )}
-
-          {/* Advanced Settings card */}
-          <div className="mt-10 bg-white rounded-2xl shadow-sm p-6 border border-black/5">
-            <h3 className="text-lg font-semibold mb-3">Advanced Settings</h3>
-            <AdvancedSettings
-              overrides={overrides}
-              sampling={sampling}
-              open={advancedOpen}
-              setOverrides={setOverrides}
-              setSampling={setSampling}
-              setOpen={setAdvancedOpen}
-            />
-          </div>
 
           {/* Desktop continue bar */}
           <div className="hidden md:flex mt-10 justify-end border-t border-black/10 pt-6">
