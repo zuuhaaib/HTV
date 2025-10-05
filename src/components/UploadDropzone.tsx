@@ -1,30 +1,102 @@
+// components/UploadDropzone.tsx
 "use client";
-import React from "react";
-import { FiUpload } from "react-icons/fi";
+import React, { useCallback, useRef, useState } from "react";
 
-type Props = {
-  title: string;
-  cta?: string;
-};
+export interface UploadDropzoneProps {
+  /** Label shown inside the dropzone */
+  title?: string;
+  /** Array of extensions like [".csv", ".xlsx", ".xls", ".parquet"] */
+  accept?: string[];
+  /** Max size in MB for UI hinting (validation can also be done by caller) */
+  maxSizeMB?: number;
+  /** Callback with the files that were dropped/selected */
+  onFilesAdded?: (files: File[]) => void;
+  /** Extra classes applied when user drags over (for your yellow/blue highlight) */
+  highlightClass?: string;
+  /** Optional: allow multiple files (default true) */
+  multiple?: boolean;
+}
 
-export default function UploadDropzone({ title, cta = "Select files" }: Props) {
+export default function UploadDropzone({
+  title = "Drop files here",
+  accept = [],
+  maxSizeMB = 100,
+  onFilesAdded,
+  highlightClass = "",
+  multiple = true,
+}: UploadDropzoneProps) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const acceptAttr = accept.length ? accept.join(",") : undefined;
+
+  const handleFiles = useCallback(
+    (fileList: FileList | null) => {
+      if (!fileList || !onFilesAdded) return;
+      const files = Array.from(fileList);
+      onFilesAdded(files);
+    },
+    [onFilesAdded]
+  );
+
+  const onBrowse = () => inputRef.current?.click();
+
+  const onDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+  const onDragLeave = () => setIsDragging(false);
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    handleFiles(e.dataTransfer.files);
+  };
+
+  const onChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    handleFiles(e.target.files);
+    // reset so same file can be selected again if needed
+    if (inputRef.current) inputRef.current.value = "";
+  };
+
   return (
-    <div className="flex flex-col gap-4">
-      <h3 className="text-lg font-bold text-black">{title}</h3>
-      <div className="flex flex-col gap-4 rounded-xl border border-dashed border-black/20 p-6 text-center bg-[#f6f7f8] hover:border-[#137fec] transition-all duration-300">
-        <div className="flex flex-col items-center justify-center gap-4 p-8">
-          <FiUpload className="text-5xl text-black/40 animate-bounce" />
-          <p className="font-semibold text-black">Drop files here or</p>
-          <button className="bg-[#137fec] text-white font-semibold py-2 px-4 rounded-lg hover:bg-[#137fec]/90 transition-colors">
-            {cta}
+    <div
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+      className={[
+        "rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center transition-colors",
+        isDragging ? highlightClass || "bg-slate-50 border-slate-400" : "",
+      ].join(" ")}
+      role="region"
+      aria-label="Upload files"
+    >
+      <input
+        ref={inputRef}
+        type="file"
+        className="hidden"
+        accept={acceptAttr}
+        multiple={multiple}
+        onChange={onChange}
+      />
+
+      <div className="flex flex-col items-center gap-2">
+        <span className="material-symbols-outlined text-3xl text-slate-500">upload</span>
+        <p className="text-sm text-slate-600">
+          {title} <span className="text-slate-400">(max {maxSizeMB} MB each)</span>
+        </p>
+        <div className="mt-2 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onBrowse}
+            className="inline-flex items-center justify-center rounded-lg h-9 px-4 text-sm font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700"
+          >
+            Browse files
           </button>
-          <p className="text-xs text-black/50 mt-2">
-            Accepted: CSV, XLSX, Parquet
-          </p>
+          {acceptAttr && (
+            <span className="text-xs text-slate-400">Allowed: {accept.join(", ")}</span>
+          )}
         </div>
-        <button className="text-sm font-medium text-[#137fec] hover:underline">
-          Attach schema (JSON, YAML, Excel)
-        </button>
       </div>
     </div>
   );
