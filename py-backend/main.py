@@ -1,5 +1,5 @@
 # main.py - FastAPI Backend with .env support
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic_settings import BaseSettings
@@ -151,7 +151,7 @@ async def upload_bundle2(session_id: str, files: List[UploadFile] = File(...)):
 
 
 @app.post("/api/upload-schema1")
-async def upload_schema1(session_id: str, files: List[UploadFile] = File(...)):
+async def upload_schema1(session_id: str = Form(...), files: List[UploadFile] = File(...)):
     """Upload optional schema/documentation files for Bundle 1 (Excel/CSV)."""
     if session_id not in sessions:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -174,7 +174,7 @@ async def upload_schema1(session_id: str, files: List[UploadFile] = File(...)):
 
 
 @app.post("/api/upload-schema2")
-async def upload_schema2(session_id: str, files: List[UploadFile] = File(...)):
+async def upload_schema2(session_id: str = Form(...), files: List[UploadFile] = File(...)):
     """Upload optional schema/documentation files for Bundle 2 (Excel/CSV)."""
     if session_id not in sessions:
         raise HTTPException(status_code=404, detail="Session not found")
