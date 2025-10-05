@@ -12,6 +12,10 @@ export interface UploadDropzoneProps {
   maxSizeMB?: number;
   /** Callback with the files that were dropped/selected */
   onFilesAdded?: (files: File[]) => void;
+  /** Optional: backend endpoint (relative) to POST files to. If provided, the component will upload files and call onFilesAdded with the server-returned filenames (if any) or original File objects on failure. */
+  uploadEndpoint?: string | null;
+  /** Optional session id to include when uploading to uploadEndpoint (appends as form field 'session_id') */
+  sessionId?: string | null;
   /** Extra classes applied when user drags over (for your yellow/blue highlight) */
   highlightClass?: string;
   /** Optional: allow multiple files (default true) */
@@ -25,6 +29,8 @@ export default function UploadDropzone({
   onFilesAdded,
   highlightClass = "",
   multiple = true,
+  uploadEndpoint = null,
+  sessionId = null,
 }: UploadDropzoneProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -35,9 +41,38 @@ export default function UploadDropzone({
     (fileList: FileList | null) => {
       if (!fileList || !onFilesAdded) return;
       const files = Array.from(fileList);
-      onFilesAdded(files);
+      // If an uploadEndpoint is provided, POST files to it and call back with server filenames (or the File objects on error)
+      if (uploadEndpoint) {
+        (async () => {
+          try {
+            const form = new FormData();
+            if (sessionId) form.append("session_id", sessionId);
+            files.forEach((f) => form.append("files", f));
+            const res = await fetch(uploadEndpoint, { method: "POST", body: form });
+            if (!res.ok) {
+              console.warn("Upload failed", await res.text());
+              onFilesAdded(files);
+              return;
+            }
+            const body = await res.json();
+            // If server returns filenames, pass them back as a synthetic File-like array
+            if (Array.isArray(body.files)) {
+              // create minimal objects with name property so callers can still display filenames
+              const synthetic = body.files.map((n: string) => new File([""], n));
+              onFilesAdded(synthetic as File[]);
+            } else {
+              onFilesAdded(files);
+            }
+          } catch (e) {
+            console.warn("Upload error", e);
+            onFilesAdded(files);
+          }
+        })();
+      } else {
+        onFilesAdded(files);
+      }
     },
-    [onFilesAdded]
+    [onFilesAdded, uploadEndpoint, sessionId]
   );
 
   const onBrowse = () => inputRef.current?.click();

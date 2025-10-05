@@ -141,6 +141,51 @@ async def upload_bundle2(session_id: str, files: List[UploadFile] = File(...)):
     }
 
 
+@app.post("/api/upload-schema1")
+async def upload_schema1(session_id: str, files: List[UploadFile] = File(...)):
+    """Upload optional schema/documentation files for Bundle 1 (Excel/CSV)."""
+    if session_id not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session_dir = UPLOAD_DIR / session_id / "schema1"
+    session_dir.mkdir(parents=True, exist_ok=True)
+
+    uploaded_files = []
+    for file in files:
+        file_path = session_dir / file.filename
+        with open(file_path, "wb") as buffer:
+            content = await file.read()
+            buffer.write(content)
+        uploaded_files.append(str(file_path))
+
+    # attach schema paths to session
+    sessions[session_id]["schema1"] = uploaded_files
+
+    return {"status": "success", "session_id": session_id, "files": [f.filename for f in files]}
+
+
+@app.post("/api/upload-schema2")
+async def upload_schema2(session_id: str, files: List[UploadFile] = File(...)):
+    """Upload optional schema/documentation files for Bundle 2 (Excel/CSV)."""
+    if session_id not in sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session_dir = UPLOAD_DIR / session_id / "schema2"
+    session_dir.mkdir(parents=True, exist_ok=True)
+
+    uploaded_files = []
+    for file in files:
+        file_path = session_dir / file.filename
+        with open(file_path, "wb") as buffer:
+            content = await file.read()
+            buffer.write(content)
+        uploaded_files.append(str(file_path))
+
+    sessions[session_id]["schema2"] = uploaded_files
+
+    return {"status": "success", "session_id": session_id, "files": [f.filename for f in files]}
+
+
 def load_tables(file_paths: List[str], bundle_name: str):
     """Load all CSV/Excel files into dictionary of DataFrames"""
     tables = {}
@@ -199,55 +244,61 @@ def analyze_all_schemas(bundle1_tables, bundle2_tables):
     return b1_schema, b2_schema
 
 
-def generate_mappings(b1_schema, b2_schema):
-    """Use Gemini to create intelligent mappings"""
-    
+def generate_mappings(b1_schema, b2_schema, schema_doc1: Optional[str] = None, schema_doc2: Optional[str] = None):
+    """Use Gemini to create intelligent mappings. Optionally include textual schema documentation to improve mapping quality."""
+
+    schema1_block = f"\n\nBUNDLE 1 SCHEMA DOCUMENTATION:\n{schema_doc1}" if schema_doc1 else ""
+    schema2_block = f"\n\nBUNDLE 2 SCHEMA DOCUMENTATION:\n{schema_doc2}" if schema_doc2 else ""
+
     prompt = f"""
 You are a data integration expert. Analyze these two data bundles and create mappings.
 
 BUNDLE 1 SCHEMA:
 {json.dumps(b1_schema, indent=2)}
+{schema1_block}
 
 BUNDLE 2 SCHEMA:
 {json.dumps(b2_schema, indent=2)}
+{schema2_block}
 
 TASK: Create field-level mappings from Bundle 1 to Bundle 2.
 
 RULES:
 - One Bundle 1 table can map to MULTIPLE Bundle 2 tables (1-to-many)
 - Multiple Bundle 1 tables can map to ONE Bundle 2 table (many-to-1)
+- One Bundle 1 table can map to ONE Bundle 2 table (one-to-one)
 - Map based on semantic meaning, not just column names
 - For unmapped columns in Bundle 1, suggest which Bundle 2 table should receive them
 
 Return JSON in this EXACT format:
 {{
-  "table_mappings": [
-    {{
-      "source_table": "bundle1_table_name",
-      "target_table": "bundle2_table_name",
-      "field_mappings": [
+    "table_mappings": [
         {{
-          "source_field": "column_from_bundle1",
-          "target_field": "column_in_bundle2",
-          "confidence": 0.95,
-          "reasoning": "why this mapping makes sense"
+            "source_table": "bundle1_table_name",
+            "target_table": "bundle2_table_name",
+            "field_mappings": [
+                {{
+                    "source_field": "column_from_bundle1",
+                    "target_field": "column_in_bundle2",
+                    "confidence": 0.95,
+                    "reasoning": "why this mapping makes sense"
+                }}
+            ]
         }}
-      ]
-    }}
-  ],
-  "summary": "brief explanation of mapping strategy"
+    ],
+    "summary": "brief explanation of mapping strategy"
 }}
 """
-    
+
     print("🤖 Asking Gemini to analyze schemas and create mappings...")
     response = model.generate_content(prompt)
-    
+
     # Extract JSON from response
     response_text = response.text
     json_start = response_text.find('{')
     json_end = response_text.rfind('}') + 1
     json_string = response_text[json_start:json_end]
-    
+
     mappings = json.loads(json_string)
     return mappings
 
@@ -341,9 +392,58 @@ async def merge_data(session_id: str, background_tasks: BackgroundTasks):
             print("\n🔍 Analyzing schemas...")
             b1_schema, b2_schema = analyze_all_schemas(bundle1_tables, bundle2_tables)
 
-            # Generate mappings with Gemini
+            # Read optional schema documentation files (if uploaded) and include their text in the Gemini prompt
+            schema_doc1 = None
+            schema_doc2 = None
+            try:
+                s1_paths = sessions[session_id].get("schema1", [])
+                if s1_paths:
+                    parts = []
+                    for p in s1_paths:
+                        pth = Path(p)
+                        try:
+                            if pth.suffix.lower() == ".csv":
+                                parts.append(open(pth, "r", encoding="utf-8").read())
+                            elif pth.suffix.lower() in (".xls", ".xlsx"):
+                                # Read all sheets and serialize each sheet fully to CSV
+                                xls = pd.read_excel(pth, sheet_name=None)
+                                for sheet_name, df_sheet in xls.items():
+                                    parts.append(f"--- SHEET: {sheet_name} ---")
+                                    parts.append(df_sheet.to_csv(index=False))
+                            else:
+                                parts.append(open(pth, "r", encoding="utf-8").read())
+                        except Exception as e:
+                            parts.append(f"(could not read {pth.name}: {e})")
+                    schema_doc1 = "\n".join(parts)
+            except Exception:
+                schema_doc1 = None
+
+            try:
+                s2_paths = sessions[session_id].get("schema2", [])
+                if s2_paths:
+                    parts = []
+                    for p in s2_paths:
+                        pth = Path(p)
+                        try:
+                            if pth.suffix.lower() == ".csv":
+                                parts.append(open(pth, "r", encoding="utf-8").read())
+                            elif pth.suffix.lower() in (".xls", ".xlsx"):
+                                # Read all sheets and serialize each sheet fully to CSV
+                                xls = pd.read_excel(pth, sheet_name=None)
+                                for sheet_name, df_sheet in xls.items():
+                                    parts.append(f"--- SHEET: {sheet_name} ---")
+                                    parts.append(df_sheet.to_csv(index=False))
+                            else:
+                                parts.append(open(pth, "r", encoding="utf-8").read())
+                        except Exception as e:
+                            parts.append(f"(could not read {pth.name}: {e})")
+                    schema_doc2 = "\n".join(parts)
+            except Exception:
+                schema_doc2 = None
+
+            # Generate mappings with Gemini (include schema docs when available)
             print("\n🤖 Generating mappings...")
-            mappings = generate_mappings(b1_schema, b2_schema)
+            mappings = generate_mappings(b1_schema, b2_schema, schema_doc1=schema_doc1, schema_doc2=schema_doc2)
 
             # Apply mappings and merge
             print("\n🔄 Applying transformations...")

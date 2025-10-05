@@ -20,6 +20,9 @@ export default function Page() {
   // Files
   const [bundleAFiles, setBundleAFiles] = useState<UploadedFile[]>([]);
   const [bundleBFiles, setBundleBFiles] = useState<UploadedFile[]>([]);
+  // Optional schema docs
+  const [schemaAFiles, setSchemaAFiles] = useState<UploadedFile[]>([]);
+  const [schemaBFiles, setSchemaBFiles] = useState<UploadedFile[]>([]);
 
   // UI / state
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -220,6 +223,24 @@ export default function Page() {
                 highlightClass="border-[#ffd200] bg-[#fff7e0]"
               />
               <div className="mt-4">
+                <div className="text-sm text-black/60 mb-2">Optional: Upload schema documentation for Bundle A</div>
+                <UploadDropzone
+                  title="Drop schema files (optional)"
+                  accept={[".csv", ".xlsx", ".xls"]}
+                  maxSizeMB={10}
+                  uploadEndpoint={`${API_BASE}/api/upload-schema1`}
+                  sessionId={sessionId}
+                  onFilesAdded={(files) => {
+                    const mapped: UploadedFile[] = files.map((f) => ({ name: f.name, sizeBytes: f.size, prettySize: prettySize(f.size) }));
+                    setSchemaAFiles((p) => [...p, ...mapped]);
+                  }}
+                  highlightClass="border-[#ffd200] bg-[#fff7e0]"
+                />
+                <div className="mt-3">
+                  <UploadedList files={schemaAFiles} title="Schema Files (Bundle A)" onRemove={(idx) => setSchemaAFiles((prev) => prev.filter((_, i) => i !== idx))} />
+                </div>
+              </div>
+              <div className="mt-4">
                 <UploadedList
                   files={bundleAFiles}
                   title="Uploaded Files (Bundle A)"
@@ -243,6 +264,24 @@ export default function Page() {
                 onFilesAdded={(files) => handleAdd("B", files)}
                 highlightClass="border-[#b3ccff] bg-[#eaf2ff]"
               />
+              <div className="mt-4">
+                <div className="text-sm text-black/60 mb-2">Optional: Upload schema documentation for Bundle B</div>
+                <UploadDropzone
+                  title="Drop schema files (optional)"
+                  accept={[".csv", ".xlsx", ".xls"]}
+                  maxSizeMB={10}
+                  uploadEndpoint={`${API_BASE}/api/upload-schema2`}
+                  sessionId={sessionId}
+                  onFilesAdded={(files) => {
+                    const mapped: UploadedFile[] = files.map((f) => ({ name: f.name, sizeBytes: f.size, prettySize: prettySize(f.size) }));
+                    setSchemaBFiles((p) => [...p, ...mapped]);
+                  }}
+                  highlightClass="border-[#b3ccff] bg-[#eaf2ff]"
+                />
+                <div className="mt-3">
+                  <UploadedList files={schemaBFiles} title="Schema Files (Bundle B)" onRemove={(idx) => setSchemaBFiles((prev) => prev.filter((_, i) => i !== idx))} />
+                </div>
+              </div>
               <div className="mt-4">
                 <UploadedList
                   files={bundleBFiles}
