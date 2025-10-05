@@ -70,16 +70,18 @@ export default function DownloadPage() {
               <h2 className="text-2xl font-bold">Merge Complete</h2>
               <p className="text-sm text-black/60 mt-1">Your merged files are ready for download. You can download individual files or grab the bundled ZIP.</p>
             </div>
-            <div className="ml-auto flex flex-col items-end gap-2">
-              <a href={`${API_BASE}/api/download/${encodeURIComponent(sessionId)}/merged_output.zip`} className="inline-flex items-center justify-center w-56 rounded-lg h-12 px-6 text-base font-bold text-white bg-[#137fec] hover:bg-[#0f6dc9] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#137fec]/50">
-                <FiDownload />
-                <span className="ml-2">Download All</span>
-              </a>
-              <a href={`${API_BASE}/api/mapping_pdf/${encodeURIComponent(sessionId)}`} className="inline-flex items-center justify-center w-56 rounded-lg h-12 px-6 text-base font-bold text-white bg-[#10b981] hover:bg-[#0ea46f] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#10b981]/50">
-                <FiFileText />
-                <span className="ml-2">Download PDF Doc</span>
-              </a>
-            </div>
+          </div>
+
+          {/* Buttons row: placed below the header, buttons fill available horizontal space */}
+          <div className="mt-6 flex w-full gap-3">
+            <a href={`${API_BASE}/api/download/${encodeURIComponent(sessionId)}/merged_output.zip`} className="inline-flex flex-1 min-w-0 items-center justify-center rounded-lg h-12 px-4 text-base font-bold text-white bg-[#137fec] hover:bg-[#0f6dc9] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#137fec]/50 shadow-sm">
+              <FiDownload />
+              <span className="ml-2 truncate">Download All</span>
+            </a>
+            <a href={`${API_BASE}/api/mapping_pdf/${encodeURIComponent(sessionId)}`} className="inline-flex flex-1 min-w-0 items-center justify-center rounded-lg h-12 px-4 text-base font-bold text-white bg-[#10b981] hover:bg-[#0ea46f] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#10b981]/50 shadow-sm">
+              <FiFileText />
+              <span className="ml-2 truncate">Download PDF Doc</span>
+            </a>
           </div>
 
           <div className="mt-6">
