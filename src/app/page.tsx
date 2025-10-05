@@ -188,27 +188,6 @@ export default function Page() {
 
   return (
     <div className="font-display bg-[#f6f7f8] flex flex-col min-h-screen">
-      {/* EY-style top bar accent */}
-      <div className="h-1 w-full bg-[#ffd200]" />
-      <div className="bg-[#0b2343] text-white">
-        <div className="container mx-auto px-4">
-          <div className="flex items-center justify-between py-3">
-            <div className="flex items-center gap-3">
-              <div className="h-6 w-6 bg-[#ffd200] rotate-12" />
-              <span className="text-sm opacity-90">EY Canada · Data Integration Challenge</span>
-            </div>
-            <nav className="hidden md:flex items-center gap-3 text-xs opacity-80">
-              <span className="opacity-75">1 Upload</span>
-              <span>›</span>
-              <span className="opacity-40">2 Map</span>
-              <span>›</span>
-              <span className="opacity-40">3 Merge</span>
-              <span>›</span>
-              <span className="opacity-40">4 Export</span>
-            </nav>
-          </div>
-        </div>
-      </div>
 
       {/* Your existing site header */}
       <Header />
