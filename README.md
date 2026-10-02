@@ -39,7 +39,6 @@ GEMINI_API_KEY=your_gemini_api_key
 
 # Optional: Model Configuration
 GEMINI_MODEL=gemini-flash-latest
-
 # Optional: Server Configuration
 HOST=0.0.0.0
 PORT=8000
